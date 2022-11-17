@@ -1,0 +1,30 @@
+{
+  "name": "reddit-scraper",
+  "version": "0.0.0",
+  "description": "Reddit scraper",
+  "type": "module",
+  "main": "reddit-scraper.mjs",
+  "scripts": {
+    "start": "node reddit-scraper.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/digitalinteraction/reddit-scraper.git"
+  },
+  "keywords": [
+    "reddit",
+    "scraper"
+  ],
+  "author": "Dan Jackson <email@danieljackson.co.uk>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/digitalinteraction/reddit-scraper/issues"
+  },
+  "homepage": "https://github.com/digitalinteraction/reddit-scraper#readme",
+  "dependencies": {
+    "glob": "^8.0.3",
+    "node-fetch": "^3.3.0",
+    "yargs": "^17.6.2"
+  }
+}
