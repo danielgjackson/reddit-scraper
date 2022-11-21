@@ -8,24 +8,32 @@ import fetch from 'node-fetch';
 
 console.log('NOTE: Starting...');
 
-// Converts a timestamp into a human-readable string
-function timestampString(timestamp) {
+// Asynchronously wait for a specified time
+async function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Converts a millisecond timestamp into a human-readable date/time string
+// separator: undefined (ISO 8601), null (human-readable "YYYY-MM-DD HH:mm:ss.fff"), '-' (suitable for filenames "YYYY-MM-DD-HH-mm-ss-fff")
+function timestampToString(timestamp, separator) {
     if (timestamp == null) return '';
     if (!(timestamp instanceof Date) && typeof timestamp !== 'string') timestamp = new Date(timestamp);
     if (typeof timestamp !== 'string') timestamp = timestamp.toISOString();
-    return timestamp.replace(/[T]/g, ' ').replace(/Z/g, '');
+    if (separator === null) {
+        timestamp = timestamp.replace(/Z/g, '').replace(/[T]/g, ' ');
+    } else if (separator != null) {
+        timestamp = timestamp.replace(/Z/g, '').replace(/[-T: \.]/g, separator);
+    }
+    return timestamp;
 }
 
-// Converts a millisecond timestamp into a filename string
-function toFilenameTimestamp(timestamp) {
-    if (timestamp == null) return '';
-    if (!(timestamp instanceof Date) && typeof timestamp !== 'string') timestamp = new Date(timestamp);
-    if (typeof timestamp !== 'string') timestamp = timestamp.toISOString();
-    return timestamp.replace(/[T:\.]/g, '-').replace(/Z/g, '');
+// Converts a millisecond timestamp into a filename-compatible date/time string
+function timestampToFilename(timestamp) {
+    return timestampToString(timestamp, '-').slice(0, -4);  // Remove milliseconds
 }
 
-// Parses a filename string to a millisecond timestamp
-function parseFilenameTimestamp(ts) {
+// Parses a string date/time to a millisecond timestamp
+function stringToTimestamp(ts) {
     if (ts == null || ts == '') return null;
     const separators = '--T::.';
     const dateString = ts.split(/[-T :Z\.]/g).map((part, index) => {
@@ -35,58 +43,156 @@ function parseFilenameTimestamp(ts) {
         } else {
             return part;
         }
-    }).join('');
+    }).join('') + 'Z';
     return (new Date(dateString)).getTime();
 }
 
+// Scrape submissions or comments
+async function scrape(subreddit, type, options) {
 
-async function scrape(options, type) {
-
-    // Ensure output directory exists
-    const dataDir = path.join(options.data, options.subreddit);
-    fs.mkdirSync(dataDir, { recursive: true });
+    // Output directory
+    const dataDir = path.join(options.data, `${subreddit}${options.directoryExtension}`);
+    console.log(`--- SCRAPE: ${subreddit}/${type} --> ${dataDir}`);
 
     // Check for existing data to resume from
-    const existingFiles = glob.sync(`${dataDir}/${type}-*.json`);
+    const existingFiles = glob.sync(path.join(dataDir, `${type}${options.filenameSeparator}*${options.filenameExtension}`), { nodir: true });
     let mostRecentTimestamp = null;
-    let mostRecentFile = null;
     for (const filename of existingFiles) {
-        const timestamp = parseFilenameTimestamp(path.basename(filename).replace(`${type}-`, '').replace('.json', ''));
+        // Extract timestamp from filename
+        const timestamp = stringToTimestamp(path.basename(filename).slice(`${type}${options.filenameSeparator}`.length, -(options.filenameExtension.length)));
+
+        // Confirm filename round-trips (i.e. is a valid time and formatted as expected)
+        const expectedFilename = `${type}${options.filenameSeparator}${timestampToFilename(timestamp)}${options.filenameExtension}`;
+        if (path.basename(filename) != expectedFilename) {
+            console.log(`WARNING: Filename was not correctly parsed, ignoring: ${path.basename(filename)} -- parsed as ${timestamp} = ${timestampToString(timestamp, null)} -- expected filename: ${expectedFilename}`);
+            continue;
+        }
+
+        // Update most recent timestamp
         if (timestamp != null && timestamp > mostRecentTimestamp) {
             mostRecentTimestamp = timestamp;
-            mostRecentFile = filename;
-            const expectedFilename = `${type}-${toFilenameTimestamp(mostRecentTimestamp)}.json`;
-            if (path.basename(filename) != expectedFilename) {
-                console.log(`WARNING: File ${filename} was not correctly parsed (${expectedFilename})`);
-            }
         }
     }
+    
+    if (mostRecentTimestamp == null) {
+        console.log('NOTE: Performing initial scraping (not resuming as there is no stored data).');
+    } else {
+        console.log(`NOTE: Resuming scraping from most recent file time: ${mostRecentTimestamp} -- ${timestampToString(mostRecentTimestamp, null)}`);
+    }
 
-    console.log(`NOTE: Resuming from most recent file: ${mostRecentFile} -- ${timestampString(mostRecentTimestamp)}`);
+    // Loop to scrape next batch from most recent timestamp and save to files with the appropriate last date for the set
+    let requestCount = 0;
+    let resultCount = 0;
+    let errors = 0;
+    for (;;) {
+        // Maximum count
+        if (options.maxRequests != null && requestCount >= options.maxRequests) {
+            console.log(`NOTE: Maximum number of requests reached (${requestCount}) -- stopping.`);
+            break;
+        }
 
-    // TODO: Loop to scrape next 500 from most recent timestamp and save to files with the appropriate last date for the set
+        // Wait
+        console.log(`... ${options.requestDelay} ms`);
+        await sleep(options.requestDelay);
+
+        // API URL
+        let url = `${options.baseUrl}${options.searchUrl[type]}?subreddit=${subreddit}&sort=asc&sort_type=created_utc&size=${options.maxSize}`;
+        if (mostRecentTimestamp != null) {
+            url += `&after=${Math.floor(mostRecentTimestamp / 1000)}`;
+        }
+
+        // Request
+        requestCount++;
+        console.log(`<<< #${requestCount} ${url}`);
+        const response = await fetch(url);
+        if (!response.ok) {
+            errors++;
+            console.log(`ERROR: #${errors} Failed to fetch data: ${response.status} ${response.statusText}`);
+            if (errors > options.maxErrors) {
+                console.log(`ERROR: Maximum error count reached -- stopping.`);
+                break;
+            }
+            continue;
+        }
+        errors = 0;
+
+        // Parse response
+        const json = await response.json();
+        console.log(`=== ${json.data.length} ${type}`);
+
+        // Sense check results
+        if (json.data.length == 0) {
+            console.log('NOTE: No more results, stopping.');
+            break;
+        }
+        const resultFirstCreated = json.data[0].created_utc * 1000;
+        const resultLastCreated = json.data[json.data.length - 1].created_utc * 1000;
+        if (resultFirstCreated > resultLastCreated) {
+            console.log(`ERROR: Data sense check failed, first result is newer than last result (${resultFirstCreated} > ${resultLastCreated}) -- stopping.`);
+            break;
+        }
+        if (resultFirstCreated < mostRecentTimestamp || resultLastCreated < mostRecentTimestamp) {
+            console.log(`ERROR: Data sense check failed, results are older than earliest requested (${resultFirstCreated} < ${mostRecentTimestamp} || ${resultLastCreated} < ${mostRecentTimestamp}) -- stopping.`);
+            break;
+        }
+
+        // Update
+        mostRecentTimestamp = resultLastCreated;
+        resultCount += json.data.length;
+        const filename = path.join(dataDir, `${type}${options.filenameSeparator}${timestampToFilename(mostRecentTimestamp)}${options.filenameExtension}`);
+        console.log(`>>> #${json.data.length}/${resultCount} ${filename}`);
+
+        // Ensure the directory exists at write time (at write time to prevent directory creation for invalid subreddits)
+        fs.mkdirSync(dataDir, { recursive: true });
+
+        // Write JSON to file
+        fs.writeFileSync(filename, JSON.stringify(json.data));
+    }
+
+    console.log(`------ ${resultCount} ${type} from ${requestCount} requests --> ${dataDir}`);
 
 }
 
-
+// Run the scraper
 async function run(options) {
-    if (options.scrapeSubmissions) {
-        scrape(options, 'submissions');
+
+    // If no subreddits specified, find any in the data directory
+    if (options.subreddit.length == 0) {
+        const globSpec = `${options.data}/*${options.directoryExtension}/`;
+        const existingDirectories = glob.sync(globSpec);
+        options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.directoryExtension.length)));
+
+        if (options.subreddit.length == 0) {
+            console.log(`WARNING: Nothing to do -- no subreddits specified, and no existing ones were found in the data directory: ${globSpec}`);
+        } else {
+            console.log(`NOTE: Subreddits not specified -- using ${options.subreddit.length} subreddit(s) found in data directory: ${options.subreddit.join(', ')}`);
+        }
+    } else {
+        console.log(`NOTE: Scraping ${options.subreddit.length} subreddit(s) specified: ${options.subreddit.join(', ')}`);
     }
-    if (options.scrapeComments) {
-        scrape(options, 'comments');
+
+    // Scrape each subreddit/type
+    for (const subreddit of options.subreddit) {
+        if (options.scrapeSubmissions) {
+            await scrape(subreddit, 'submissions', options);
+        }
+        if (options.scrapeComments) {
+            await scrape(subreddit, 'comments', options);
+        }
     }
 }
 
+
+// Handle command-line arguments and run the scraper
 function main(argv, defaultOptions) {
     // Command-line options
     const args = yargs(hideBin(process.argv))
         .scriptName('reddit-scraper')
         .option('subreddit', {
-            //alias: 's',
-            demandOption: true,
-            describe: 'Subreddit to scrape',
-            type: 'string'
+            default: [],
+            array: true,
+            describe: 'Subreddit to scrape (if none specified, existing scrapes are continued)',
+            type: 'string',
         })
         .option('data', {
             default: defaultOptions.data,
@@ -109,9 +215,11 @@ function main(argv, defaultOptions) {
     run(options);
 }
 
+
+// Default options
 const dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const defaultOptions = {
-    subreddit: null,
+    subreddits: null,
     baseUrl: 'https://api.pushshift.io',
     searchUrl: {
         'subreddits': '/reddit/subreddit/search',
@@ -121,7 +229,16 @@ const defaultOptions = {
     scrapeSubmissions: true,
     scrapeComments: true,
     data: path.join(dirname, 'data'),
+    filenameSeparator: '-',
+    filenameExtension: '.json',
+    directoryExtension: '.reddit',
+    maxSize: 500,
+    maxRequests: null,
+    maxErrors: 3,
+    requestDelay: 500,
 };
 
+
+// Run
 main(process.argv, defaultOptions);
 console.log('NOTE: Finishing...');
