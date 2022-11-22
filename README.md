@@ -6,14 +6,14 @@ Example usage:
 
 <!--
 ```bash
-npm start -- --subreddit ShitMomGroupsSay
+npm start -- --subreddit reddit
 ```
 
 or:
 -->
 
 ```bash
-node reddit-scraper.mjs --subreddit ShitMomGroupsSay
+node reddit-scraper.mjs --subreddit reddit
 ```
 
 
