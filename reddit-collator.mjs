@@ -4,7 +4,6 @@ import path from 'path';
 import glob from 'glob';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import fetch from 'node-fetch';
 
 console.log('NOTE: Starting...');
 
@@ -47,12 +46,15 @@ function stringToTimestamp(ts) {
     return (new Date(dateString)).getTime();
 }
 
-// Scrape submissions or comments
-async function scrape(subreddit, type, options) {
+// Collate submissions or comments
+async function collate(subreddit, type, options) {
 
     // Output directory
     const dataDir = path.join(options.data, `${subreddit}${options.scrapeDirectoryExtension}`);
-    console.log(`--- SCRAPE: ${subreddit}/${type} --> ${dataDir}`);
+    console.log(`--- COLLATE: ${subreddit}/${type} --> ${dataDir}`);
+
+// TODO: Collate submissions (the code below is from the scraper)
+throw new Error("Not implemented!");
 
     // Check for existing data to resume from
     const existingFiles = glob.sync(path.join(dataDir, `${type}${options.filenameSeparator}*${options.filenameExtension}`), { nodir: true });
@@ -80,7 +82,7 @@ async function scrape(subreddit, type, options) {
         console.log(`NOTE: Resuming scraping from most recent file time: ${mostRecentTimestamp} -- ${timestampToString(mostRecentTimestamp, null)}`);
     }
 
-    // Loop to scrape next batch from most recent timestamp and save to files with the appropriate last date for the set
+    // Loop to collate next batch from most recent timestamp and save to files with the appropriate last date for the set
     let requestCount = 0;
     let resultCount = 0;
     let errors = 0;
@@ -153,7 +155,7 @@ async function scrape(subreddit, type, options) {
 
 }
 
-// Run the scraper
+// Run the collator
 async function run(options) {
 
     // If no subreddits specified, find any in the data directory
@@ -171,27 +173,27 @@ async function run(options) {
         console.log(`NOTE: Scraping ${options.subreddit.length} subreddit(s) specified: ${options.subreddit.join(', ')}`);
     }
 
-    // Scrape each subreddit/type
+    // Collate each subreddit/type
     for (const subreddit of options.subreddit) {
         if (options.submissions) {
-            await scrape(subreddit, 'submissions', options);
+            await collate(subreddit, 'submissions', options);
         }
         if (options.comments) {
-            await scrape(subreddit, 'comments', options);
+            await collate(subreddit, 'comments', options);
         }
     }
 }
 
 
-// Handle command-line arguments and run the scraper
+// Handle command-line arguments and run the collator
 function main(argv, defaultOptions) {
     // Command-line options
     const args = yargs(hideBin(process.argv))
-        .scriptName('reddit-scraper')
+        .scriptName('reddit-collator')
         .option('subreddit', {
             default: [],
             array: true,
-            describe: 'Subreddit to scrape (if none specified, existing scrapes are continued)',
+            describe: 'Subreddit to collate (if none specified, existing collations are updated)',
             type: 'string',
         })
         .option('data', {
@@ -201,12 +203,12 @@ function main(argv, defaultOptions) {
         })
         .option('submissions', {
             default: defaultOptions.submissions,
-            describe: 'Scrape submissions (default, use --no-submissions to disable)',
+            describe: 'Collate submissions (default, use --no-submissions to disable)',
             type: 'boolean'
         })
         .option('comments', {
             default: defaultOptions.comments,
-            describe: 'Scrape comments (default, use --no-comments to disable)',
+            describe: 'Collate comments (default, use --no-comments to disable)',
             type: 'boolean'
         })
         .argv;
@@ -220,22 +222,12 @@ function main(argv, defaultOptions) {
 const dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const defaultOptions = {
     subreddits: null,
-    baseUrl: 'https://api.pushshift.io',
-    searchUrl: {
-        'subreddits': '/reddit/subreddit/search',
-        'submissions': '/reddit/submission/search',
-        'comments': '/reddit/comment/search',
-    },
     submissions: true,
     comments: true,
     data: path.join(dirname, 'data'),
     filenameSeparator: '-',
     filenameExtension: '.json',
     scrapeDirectoryExtension: '.reddit',
-    maxSize: 500,
-    maxRequests: null,
-    maxErrors: 3,
-    requestDelay: 500,
 };
 
 
