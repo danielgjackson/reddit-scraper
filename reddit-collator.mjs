@@ -49,15 +49,22 @@ function stringToTimestamp(ts) {
 // Collate submissions or comments
 async function collate(subreddit, type, options) {
 
-    // Output directory
-    const dataDir = path.join(options.data, `${subreddit}${options.scrapeDirectoryExtension}`);
-    console.log(`--- COLLATE: ${subreddit}/${type} --> ${dataDir}`);
+    // Input and output directories
+    const scrapeDataDir = path.join(options.data, `${subreddit}${options.scrapeDirectoryExtension}`);
+    const collatedDataDir = path.join(options.data, `${subreddit}${options.collatedDirectoryExtension}`);
+    console.log(`--- COLLATE: ${subreddit}/${type} -- ${scrapeDataDir} --> ${collatedDataDir}`);
+
+    // Source data directory must exist
+    if (!fs.existsSync(scrapeDataDir) || !fs.lstatSync(scrapeDataDir).isDirectory()) {
+        console.log(`ERROR: No scrape data directory: ${scrapeDataDir} -- skipping collation.`);
+        return;
+    }
 
 // TODO: Collate submissions (the code below is from the scraper)
 throw new Error("Not implemented!");
 
     // Check for existing data to resume from
-    const existingFiles = glob.sync(path.join(dataDir, `${type}${options.filenameSeparator}*${options.filenameExtension}`), { nodir: true });
+    const existingFiles = glob.sync(path.join(scrapeDataDir, `${type}${options.filenameSeparator}*${options.filenameExtension}`), { nodir: true });
     let mostRecentTimestamp = null;
     for (const filename of existingFiles) {
         // Extract timestamp from filename
@@ -141,33 +148,33 @@ throw new Error("Not implemented!");
         // Update
         mostRecentTimestamp = resultLastCreated;
         resultCount += json.data.length;
-        const filename = path.join(dataDir, `${type}${options.filenameSeparator}${timestampToFilename(mostRecentTimestamp)}${options.filenameExtension}`);
+        const filename = path.join(scrapeDataDir, `${type}${options.filenameSeparator}${timestampToFilename(mostRecentTimestamp)}${options.filenameExtension}`);
         console.log(`>>> #${json.data.length}/${resultCount} ${filename}`);
 
         // Ensure the directory exists at write time (at write time to prevent directory creation for invalid subreddits)
-        fs.mkdirSync(dataDir, { recursive: true });
+        fs.mkdirSync(scrapeDataDir, { recursive: true });
 
         // Write JSON to file
         fs.writeFileSync(filename, JSON.stringify(json.data));
     }
 
-    console.log(`------ ${resultCount} ${type} from ${requestCount} requests --> ${dataDir}`);
+    console.log(`------ ${resultCount} ${type} from ${requestCount} requests --> ${scrapeDataDir}`);
 
 }
 
 // Run the collator
 async function run(options) {
 
-    // If no subreddits specified, find any in the data directory
+    // If no subreddits specified, find any existing collations in the data directory
     if (options.subreddit.length == 0) {
-        const globSpec = `${options.data}/*${options.scrapeDirectoryExtension}/`;
+        const globSpec = `${options.data}/*${options.collatedDirectoryExtension}/`;
         const existingDirectories = glob.sync(globSpec);
-        options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.scrapeDirectoryExtension.length)));
+        options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.collatedDirectoryExtension.length)));
 
         if (options.subreddit.length == 0) {
-            console.log(`WARNING: Nothing to do -- no subreddits specified, and no existing ones were found in the data directory: ${globSpec}`);
+            console.log(`WARNING: Nothing to do -- no subreddits specified, and no existing collations were found in the data directory: ${globSpec}`);
         } else {
-            console.log(`NOTE: Subreddits not specified -- using ${options.subreddit.length} subreddit(s) found in data directory: ${options.subreddit.join(', ')}`);
+            console.log(`NOTE: Subreddits not specified -- using ${options.subreddit.length} subreddit collation(s) found in data directory: ${options.subreddit.join(', ')}`);
         }
     } else {
         console.log(`NOTE: Scraping ${options.subreddit.length} subreddit(s) specified: ${options.subreddit.join(', ')}`);
@@ -228,6 +235,7 @@ const defaultOptions = {
     filenameSeparator: '-',
     filenameExtension: '.json',
     scrapeDirectoryExtension: '.reddit',
+    collatedDirectoryExtension: '.collated',
 };
 
 
