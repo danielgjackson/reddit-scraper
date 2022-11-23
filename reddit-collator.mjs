@@ -46,6 +46,12 @@ function stringToTimestamp(ts) {
     return (new Date(dateString)).getTime();
 }
 
+// Takes an ID string, e.g. 'abcdefg' and returns a path string, e.g. 'ab/cd/ef/g'.
+// Assuming base-36, each directory will contain fewer than (36^2=) 1296 files.
+function idToSubdirectory(id) {
+    return id.replace(/(..)(?=[^$])/g, '$1\t').split('\t').join('/')
+}
+
 // Collate submissions or comments
 async function collate(subreddit, type, options) {
 
@@ -60,106 +66,113 @@ async function collate(subreddit, type, options) {
         return;
     }
 
-// TODO: Collate submissions (the code below is from the scraper)
-throw new Error("Not implemented!");
-
-    // Check for existing data to resume from
-    const existingFiles = glob.sync(path.join(scrapeDataDir, `${type}${options.filenameSeparator}*${options.filenameExtension}`), { nodir: true });
-    let mostRecentTimestamp = null;
-    for (const filename of existingFiles) {
-        // Extract timestamp from filename
-        const timestamp = stringToTimestamp(path.basename(filename).slice(`${type}${options.filenameSeparator}`.length, -(options.filenameExtension.length)));
-
-        // Confirm filename round-trips (i.e. is a valid time and formatted as expected)
-        const expectedFilename = `${type}${options.filenameSeparator}${timestampToFilename(timestamp)}${options.filenameExtension}`;
-        if (path.basename(filename) != expectedFilename) {
-            console.log(`WARNING: Filename was not correctly parsed, ignoring: ${path.basename(filename)} -- parsed as ${timestamp} = ${timestampToString(timestamp, null)} -- expected filename: ${expectedFilename}`);
-            continue;
-        }
-
-        // Update most recent timestamp
-        if (timestamp != null && timestamp > mostRecentTimestamp) {
-            mostRecentTimestamp = timestamp;
-        }
+    // Check existing collated file timestamps
+    const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*${options.filenameExtension}`), { nodir: true });
+    let lastModified = null;
+    for (const filename of existingCollatedFiles) {
+        const modified = fs.lstatSync(filename).mtime.getTime();
+        if (modified > lastModified) lastModified = modified;
     }
-    
-    if (mostRecentTimestamp == null) {
-        console.log('NOTE: Performing initial scraping (not resuming as there is no stored data).');
+
+    // Find newer data files
+    const globDataFiles = path.join(scrapeDataDir, `${type}${options.filenameSeparator}*${options.filenameExtension}`);
+    const allDataFiles = glob.sync(globDataFiles, { nodir: true }).sort();
+    const dataFiles = allDataFiles.filter(filename => {
+        if (!lastModified) return true;
+        const modified = fs.lstatSync(filename).mtime.getTime();
+        return modified > lastModified;
+    });
+
+    // Indicate to user what we're going to do
+    if (lastModified == null) {
+        if (dataFiles.length == 0) {
+            console.log('NOTE: No data files to collate.');
+        } else {
+            console.log(`NOTE: Performing full collation of ${dataFiles.length} files (not resuming as there is no stored data, the ${allDataFiles.length} file(s) were not newer than ${lastModified} -- ${timestampToString(lastModified, null)} at: ${globDataFiles}`);
+        }
     } else {
-        console.log(`NOTE: Resuming scraping from most recent file time: ${mostRecentTimestamp} -- ${timestampToString(mostRecentTimestamp, null)}`);
+        if (dataFiles.length == 0) {
+            console.log(`NOTE: No new data files were found to resume collation modified since: ${lastModified} -- ${timestampToString(lastModified, null)}`);
+        } else {
+            console.log(`NOTE: Resuming collation from ${dataFiles.length} files that were modified since: ${lastModified} -- ${timestampToString(lastModified, null)}`);
+        }
     }
 
-    // Loop to collate next batch from most recent timestamp and save to files with the appropriate last date for the set
-    let requestCount = 0;
-    let resultCount = 0;
-    let errors = 0;
-    for (;;) {
-        // Maximum count
-        if (options.maxRequests != null && requestCount >= options.maxRequests) {
-            console.log(`NOTE: Maximum number of requests reached (${requestCount}) -- stopping.`);
-            break;
-        }
+    // Cache of open files (filename to stream) -- ensure closed even if an error occurs
+    const streams = {};
+    try {
+        // For each new data file, open to determine records, collate into relevant output files.
+        let fileCount = 0;
+        let recordCount = 0;
+        for (const dataFile of dataFiles) {
+            const contents = fs.readFileSync(dataFile, 'utf8');
+            const records = JSON.parse(contents);
+            for (const record of records) {
+                let subdirectory;
+                let filename;
+                if (type == 'submissions') {
+                    subdirectory = collatedDataDir;
+                    filename = `all-submissions.csv`;
+                } else if (type == 'comments') {
+                    const submission = record.link_id.replace(/^t3_/, '');
+                    subdirectory = path.join(collatedDataDir, idToSubdirectory(submission));
+                    filename = `submission${options.filenameSeparator}${submission}.csv`;
+                } else {
+                    throw new Error(`Invalid type: ${type}`);
+                }
 
-        // Wait
-        console.log(`... ${options.requestDelay} ms`);
-        await sleep(options.requestDelay);
+                const collatedFilename = path.join(subdirectory, filename);
 
-        // API URL
-        let url = `${options.baseUrl}${options.searchUrl[type]}?subreddit=${subreddit}&sort=asc&sort_type=created_utc&size=${options.maxSize}`;
-        if (mostRecentTimestamp != null) {
-            url += `&after=${Math.floor(mostRecentTimestamp / 1000)}`;
-        }
+                // If stream not already open
+                if (!streams[filename]) {
+                    // If too many streams open, close the oldest one
+                    while (Object.keys(streams).length > 0 && Object.keys(streams).length >= options.maxOpenFiles) {
+                        let oldestLastWritten = -1;
+                        let oldestFilename = null;
+                        for (const filename in streams) {
+                            if (streams[filename].lastWritten > oldestLastWritten || oldestLastWritten < 0) {
+                                oldestLastWritten = streams[filename].lastWritten;
+                                oldestFilename = filename;
+                            }
+                        }
+                        if (!oldestFilename) break;
+                        //console.log(`--- ${oldestFilename}`);
+                        streams[oldestFilename].end();
+                        delete streams[oldestFilename];
+                    }
 
-        // Request
-        requestCount++;
-        console.log(`<<< #${requestCount} ${url}`);
-        const response = await fetch(url);
-        if (!response.ok) {
-            errors++;
-            console.log(`ERROR: #${errors} Failed to fetch data: ${response.status} ${response.statusText}`);
-            if (errors > options.maxErrors) {
-                console.log(`ERROR: Maximum error count reached -- stopping.`);
-                break;
+                    // Ensure the directory exists
+                    fs.mkdirSync(subdirectory, { recursive: true });
+
+                    // Open file as append
+                    streams[filename] = fs.createWriteStream(collatedFilename, { flags: 'a' });
+
+                    streams[filename].fullFilename = collatedFilename;
+    
+                    //console.log(`+++ ${collatedFilename}`);
+                } else {
+                    //console.log(`=== ${collatedFilename}`);
+                }
+
+                // Tag stream with last written serial number for LRU cache
+                streams[filename].lastWritten = recordCount;
+
+                // Write record to stream
+                streams[filename].write(`${JSON.stringify(record)}\n`);
             }
-            continue;
-        }
-        errors = 0;
-
-        // Parse response
-        const json = await response.json();
-        console.log(`=== ${json.data.length} ${type}`);
-
-        // Sense check results
-        if (json.data.length == 0) {
-            console.log('NOTE: No more results, stopping.');
-            break;
-        }
-        const resultFirstCreated = json.data[0].created_utc * 1000;
-        const resultLastCreated = json.data[json.data.length - 1].created_utc * 1000;
-        if (resultFirstCreated > resultLastCreated) {
-            console.log(`ERROR: Data sense check failed, first result is newer than last result (${resultFirstCreated} > ${resultLastCreated}) -- stopping.`);
-            break;
-        }
-        if (resultFirstCreated < mostRecentTimestamp || resultLastCreated < mostRecentTimestamp) {
-            console.log(`ERROR: Data sense check failed, results are older than earliest requested (${resultFirstCreated} < ${mostRecentTimestamp} || ${resultLastCreated} < ${mostRecentTimestamp}) -- stopping.`);
-            break;
+            fileCount++;
         }
 
-        // Update
-        mostRecentTimestamp = resultLastCreated;
-        resultCount += json.data.length;
-        const filename = path.join(scrapeDataDir, `${type}${options.filenameSeparator}${timestampToFilename(mostRecentTimestamp)}${options.filenameExtension}`);
-        console.log(`>>> #${json.data.length}/${resultCount} ${filename}`);
-
-        // Ensure the directory exists at write time (at write time to prevent directory creation for invalid subreddits)
-        fs.mkdirSync(scrapeDataDir, { recursive: true });
-
-        // Write JSON to file
-        fs.writeFileSync(filename, JSON.stringify(json.data));
+    } finally {
+        // Close all open streams
+        for (const filename in streams) {
+            //console.log(`---- ${filename}`);
+            streams[filename].end();
+        }
+        streams.length = 0;
     }
 
-    console.log(`------ ${resultCount} ${type} from ${requestCount} requests --> ${scrapeDataDir}`);
-
+    console.log(`------ ${recordCount} ${type} from ${fileCount} files --> ${collatedDataDir}`);
 }
 
 // Run the collator
@@ -167,12 +180,19 @@ async function run(options) {
 
     // If no subreddits specified, find any existing collations in the data directory
     if (options.subreddit.length == 0) {
-        const globSpec = `${options.data}/*${options.collatedDirectoryExtension}/`;
-        const existingDirectories = glob.sync(globSpec);
+        const globSpecCollated = `${options.data}/*${options.collatedDirectoryExtension}/`;
+        const existingDirectories = glob.sync(globSpecCollated);
         options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.collatedDirectoryExtension.length)));
-
         if (options.subreddit.length == 0) {
-            console.log(`WARNING: Nothing to do -- no subreddits specified, and no existing collations were found in the data directory: ${globSpec}`);
+            // If no subreddits specified and no existing collations, find any existing scraped subreddits
+            const globSpecData = `${options.data}/*${options.scrapeDirectoryExtension}/`;
+            const existingDirectories = glob.sync(globSpecData);
+            options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.scrapeDirectoryExtension.length)));
+            if (options.subreddit.length == 0) {
+                console.log(`WARNING: Nothing to do -- no subreddits specified, and no existing collations were found at ${globSpecCollated} -- and no existing scraped data was found at ${globSpecData}`);
+            } else {
+                console.log(`NOTE: Subreddits not specified, no existing collations were found at ${globSpecCollated}, but using ${options.subreddit.length} scraped subreddit(s) found in data directory: ${options.subreddit.join(', ')}`);
+            }
         } else {
             console.log(`NOTE: Subreddits not specified -- using ${options.subreddit.length} subreddit collation(s) found in data directory: ${options.subreddit.join(', ')}`);
         }
@@ -236,6 +256,7 @@ const defaultOptions = {
     filenameExtension: '.json',
     scrapeDirectoryExtension: '.reddit',
     collatedDirectoryExtension: '.collated',
+    maxOpenFiles: 256,
 };
 
 
