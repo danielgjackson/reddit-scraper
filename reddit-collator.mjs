@@ -4,6 +4,7 @@ import path from 'path';
 import glob from 'glob';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import { getSystemErrorMap } from 'util';
 
 console.log('NOTE: Starting...');
 
@@ -66,8 +67,17 @@ async function collate(subreddit, type, options) {
         return;
     }
 
+    // Find existing collated files
+    const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*${options.collatedExtension}`), { nodir: true });
+
+    // Purge
+    if (options.purge) {
+        throw new Error('Purge not implemented yet');
+// TODO: Do not allow non-specified subreddit purge
+
+    }
+
     // Check existing collated file timestamps
-    const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*${options.filenameExtension}`), { nodir: true });
     let lastModified = null;
     for (const filename of existingCollatedFiles) {
         const modified = fs.lstatSync(filename).mtime.getTime();
@@ -77,18 +87,20 @@ async function collate(subreddit, type, options) {
     // Find newer data files
     const globDataFiles = path.join(scrapeDataDir, `${type}${options.filenameSeparator}*${options.filenameExtension}`);
     const allDataFiles = glob.sync(globDataFiles, { nodir: true }).sort();
-    const dataFiles = allDataFiles.filter(filename => {
-        if (!lastModified) return true;
-        const modified = fs.lstatSync(filename).mtime.getTime();
-        return modified > lastModified;
-    });
+    let dataFiles = allDataFiles;
+    if (lastModified) {
+        dataFiles = dataFiles.filter(filename => {
+            const modified = fs.lstatSync(filename).mtime.getTime();
+            return modified > lastModified;
+        });
+    }
 
     // Indicate to user what we're going to do
     if (lastModified == null) {
         if (dataFiles.length == 0) {
             console.log('NOTE: No data files to collate.');
         } else {
-            console.log(`NOTE: Performing full collation of ${dataFiles.length} files (not resuming as there is no stored data, the ${allDataFiles.length} file(s) were not newer than ${lastModified} -- ${timestampToString(lastModified, null)} at: ${globDataFiles}`);
+            console.log(`NOTE: Performing full collation of ${dataFiles.length} files from ${allDataFiles.length} files of stored data at: ${globDataFiles}`);
         }
     } else {
         if (dataFiles.length == 0) {
@@ -100,10 +112,10 @@ async function collate(subreddit, type, options) {
 
     // Cache of open files (filename to stream) -- ensure closed even if an error occurs
     const streams = {};
+    let fileCount = 0;
+    let recordCount = 0;
     try {
         // For each new data file, open to determine records, collate into relevant output files.
-        let fileCount = 0;
-        let recordCount = 0;
         for (const dataFile of dataFiles) {
             const contents = fs.readFileSync(dataFile, 'utf8');
             const records = JSON.parse(contents);
@@ -112,11 +124,11 @@ async function collate(subreddit, type, options) {
                 let filename;
                 if (type == 'submissions') {
                     subdirectory = collatedDataDir;
-                    filename = `all-submissions.csv`;
+                    filename = `all-submissions.${options.collatedExtension}`;
                 } else if (type == 'comments') {
                     const submission = record.link_id.replace(/^t3_/, '');
                     subdirectory = path.join(collatedDataDir, idToSubdirectory(submission));
-                    filename = `submission${options.filenameSeparator}${submission}.csv`;
+                    filename = `submission${options.filenameSeparator}${submission}.${options.collatedExtension}`;
                 } else {
                     throw new Error(`Invalid type: ${type}`);
                 }
@@ -238,6 +250,11 @@ function main(argv, defaultOptions) {
             describe: 'Collate comments (default, use --no-comments to disable)',
             type: 'boolean'
         })
+        .option('purge', {
+            default: defaultOptions.purge,
+            describe: 'Remove existing collated data (subreddits must be explicitly specified)',
+            type: 'boolean'
+        })
         .argv;
 
     const options = Object.assign({}, defaultOptions, args);
@@ -257,6 +274,8 @@ const defaultOptions = {
     scrapeDirectoryExtension: '.reddit',
     collatedDirectoryExtension: '.collated',
     maxOpenFiles: 256,
+    purge: false,
+    collatedExtension: 'ndjson',
 };
 
 
