@@ -1,6 +1,6 @@
 # Reddit scraper
 
-Produces an offline archive for a specific subreddit.
+Produces an offline archive of submissions and comments for a subreddit.
 
 
 ## Installing and running this software
@@ -32,7 +32,7 @@ Produces an offline archive for a specific subreddit.
     cd reddit-scraper
     ```
 
-5. If you have not previously installed the software, install the `node` library dependencies:
+5. If you have not previously installed the software, install the library dependencies:
 
     ```bash
     npm install
