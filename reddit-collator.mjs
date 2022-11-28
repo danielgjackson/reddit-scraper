@@ -4,66 +4,10 @@ import path from 'path';
 import glob from 'glob';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import { timestampToString, removeEmptyDirectoryRecursive, idToSubdirectory, csvEscape } from './reddit-util.mjs';
 
 console.log('NOTE: Starting...');
 
-// Converts a millisecond timestamp into a human-readable date/time string
-// separator: undefined (ISO 8601), null (human-readable "YYYY-MM-DD HH:mm:ss.fff"), '-' (suitable for filenames "YYYY-MM-DD-HH-mm-ss-fff")
-function timestampToString(timestamp, separator) {
-    if (timestamp == null) return '';
-    if (!(timestamp instanceof Date) && typeof timestamp !== 'string') timestamp = new Date(timestamp);
-    if (typeof timestamp !== 'string') timestamp = timestamp.toISOString();
-    if (separator === null) {
-        timestamp = timestamp.replace(/Z/g, '').replace(/[T]/g, ' ');
-    } else if (separator != null) {
-        timestamp = timestamp.replace(/Z/g, '').replace(/[-T: \.]/g, separator);
-    }
-    return timestamp;
-}
-
-// Recursively remove a directory tree containing no files
-function removeEmptyDirectoryRecursive(directory) {
-    if (!fs.statSync(directory).isDirectory()) return false;
-    const files = fs.readdirSync(directory);
-    let removed = 0;
-    //console.log(`RMDIR-INFO: ${files.length}: ${directory}/{${files.join(',')}}`);
-    for (const file of files) {
-        if (removeEmptyDirectoryRecursive(path.join(directory, file))) removed++;
-    }
-    if (files.length - removed != 0) {
-        return false;
-    }
-    fs.rmdirSync(directory);
-    return true;
-}
-
-// Takes an ID string, e.g. 'abcdef' and returns a path string, e.g. 'ab/cd/ef'.
-// For two-character splits in base-36, each directory will contain fewer than (36^2=) 1296 files.
-function idToSubdirectory(id) {
-    //return id.replace(/(..)(?=[^$])/g, '$1\t').split('\t').join('/')
-    const maxLetters = 4;
-    const splitLetters = 2;
-    const parts = [];
-    while (id.length > maxLetters) {
-        parts.push(id.substr(0, splitLetters));
-        id = id.slice(splitLetters);
-    }
-    //if (id.length > 0) parts.push(id);
-    return parts.join('/');
-}
-
-// Escape a CSV string value
-function csvEscape(value, force = true) {
-    // All values as strings
-    if (value == null) return '';   // null is empty string in CSV
-    if (typeof value !== 'string') value = value.toString();
-    if (value == '') return '""';   // always output empty string as quoted to differentiate from null
-    // Double quotes must be escaped with a second double quote
-    if (value.includes('"')) value = value.replace(/"/g, '""');
-    // Strings containing commas, double quotes, or newlines must be wrapped in double quotes
-    if (force || value.includes(',') || value.includes('"') || value.includes('\n')) value = `"${value}"`;
-    return value;
-}
 
 // Collate submissions or comments
 function collateType(subreddit, type, options) {
@@ -306,9 +250,9 @@ function run(options) {
 
     // If no subreddits specified, find any existing collations in the data directory
     if (options.subreddit.length == 0) {
-        const globSpecCollated = `${options.data}/*${options.collatedDirectoryExtension}/`;
+        const globSpecCollated = `${options.data}/*${options.collatedDirectoryExtension}-${options.output}/`;
         const existingDirectories = glob.sync(globSpecCollated);
-        options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.collatedDirectoryExtension.length)));
+        options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.collatedDirectoryExtension.length + 1 + options.output.length)));
         if (options.subreddit.length == 0) {
             // If no subreddits specified and no existing collations, find any existing scraped subreddits
             const globSpecData = `${options.data}/*${options.scrapeDirectoryExtension}/`;

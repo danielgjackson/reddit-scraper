@@ -91,7 +91,7 @@ This process can be interrupted, run again to resume, and repeated to fetch the 
 
 This process takes the scraped raw submissions and comments and, by default, collates them to a `data/$SUBREDDIT.collated-ndjson` directory as:
 
-  * a single `submissions-all.ndjson` file, one line for each submission.
+  * a single `submissions-index.ndjson` file, one line for each submission.
   
   * a file `comments-$SUBMISSIONID.ndjson` file, where `$SUBMISSIONID` is the ID of the submission, with one line for each comment. 
 
@@ -101,7 +101,7 @@ node reddit-collator.mjs --subreddit reddit
 
 You can change the output to `.csv` format with the `--output csv` option (not used by the *reporter*), which will collate them to a `data/$SUBREDDIT.collated-csv` directory as:
 
-  * a single `submissions-all.csv` file, one row for each submission.
+  * a single `submissions-index.csv` file, one row for each submission.
   
   * a file `comments-$SUBMISSIONID.csv` file, where `$SUBMISSIONID` is the ID of the submission, with one row for each comment. 
 

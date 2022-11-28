@@ -3,6 +3,7 @@
         "ndjson",
         "nodir",
         "Pushshift",
-        "selftext"
+        "selftext",
+        "SUBMISSIONID"
     ]
 }

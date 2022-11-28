@@ -5,47 +5,9 @@ import glob from 'glob';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import fetch from 'node-fetch';
+import { sleep, timestampToString, timestampToFilename, stringToTimestamp } from './reddit-util.mjs';
 
 console.log('NOTE: Starting...');
-
-// Asynchronously wait for a specified time
-async function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// Converts a millisecond timestamp into a human-readable date/time string
-// separator: undefined (ISO 8601), null (human-readable "YYYY-MM-DD HH:mm:ss.fff"), '-' (suitable for filenames "YYYY-MM-DD-HH-mm-ss-fff")
-function timestampToString(timestamp, separator) {
-    if (timestamp == null) return '';
-    if (!(timestamp instanceof Date) && typeof timestamp !== 'string') timestamp = new Date(timestamp);
-    if (typeof timestamp !== 'string') timestamp = timestamp.toISOString();
-    if (separator === null) {
-        timestamp = timestamp.replace(/Z/g, '').replace(/[T]/g, ' ');
-    } else if (separator != null) {
-        timestamp = timestamp.replace(/Z/g, '').replace(/[-T: \.]/g, separator);
-    }
-    return timestamp;
-}
-
-// Converts a millisecond timestamp into a filename-compatible date/time string
-function timestampToFilename(timestamp) {
-    return timestampToString(timestamp, '-').slice(0, -4);  // Remove milliseconds
-}
-
-// Parses a string date/time to a millisecond timestamp
-function stringToTimestamp(ts) {
-    if (ts == null || ts == '') return null;
-    const separators = '--T::.';
-    const dateString = ts.split(/[-T :Z\.]/g).map((part, index) => {
-        if (index > separators.length) return '';
-        if (index > 0) {
-            return separators[index - 1] + part;
-        } else {
-            return part;
-        }
-    }).join('') + 'Z';
-    return (new Date(dateString)).getTime();
-}
 
 // Scrape submissions or comments
 async function scrape(subreddit, type, options) {
