@@ -396,7 +396,7 @@ const defaultOptions = {
     purge: false,
     source: null, // none/data/collations/specified
     indexFilename: 'index',
-    output: 'csv', // ndjson/csv
+    output: 'ndjson', // ndjson/csv
 };
 
 
