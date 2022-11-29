@@ -80,6 +80,7 @@ function generateReport(subreddit, options) {
 
         } else {
             console.log(`ERROR: Unknown output type: ${options.output}`);
+            return;
         }
     } else {
         console.log(`NOTE: Report index skipped (collated index is not newer).`);
@@ -118,18 +119,37 @@ function generateReport(subreddit, options) {
             });
             
             // Create map of unsorted comments
-            const availableComments = [];
-            sourceComments.forEach((comment) => {
-                availableComments[comment.id] = comment;
-            });
+            const childCommentsForId = {};
+            for (const comment of sourceComments) {
+                const parentId = comment.parent;
+                if (!childCommentsForId[parentId]) {
+                    childCommentsForId[parentId] = [];
+                }
+                childCommentsForId[parentId].push(comment);
+            }
 
-            // Track finalized comments
+            // Visit comment hierarchy
             const comments = [];
+            function visitComments(id, depth = 0) {
+                const children = childCommentsForId[id];
+                if (children) {
+                    for (const child of children) {
+                        child.depth = depth;
+                        comments.push(child);
+                        visitComments(child.id, depth + 1);
+                    }
+                }
+            }
+            // Add comments under the parent submission (and their children, in turn)
+            //visitComments(submission.id);
+            // Add unassigned comments (possibly from deleted parents?)            
+            visitComments(null);
 
-// TODO: Properly process comments to calculate ordered nesting
-availableComments.forEach((comment) => {
-    comments.push(comment);
-})
+            // Verify no comments are missing
+            if (comments.length != sourceComments.length) {
+                console.log(`ERROR: No all comments were sorted correctly, only ${comments.length} != ${sourceComments.length}`);
+                return;
+            }
 
             // Output
             fs.mkdirSync(path.dirname(reportFile), { recursive: true });
@@ -153,7 +173,7 @@ availableComments.forEach((comment) => {
 
                 // Data rows
                 for (const comment of comments) {
-                    // .nest_level
+                    // .depth (calculated); .nest_level (original)
                     // .id -- comment id
                     // .parent_id ('t1_...') -- parent comment id
                     // .created_utc -- created time seconds since epoch
@@ -162,7 +182,7 @@ availableComments.forEach((comment) => {
                     // .body -- comment text
                     // (url -- empty for comments, only set for submission)
                     // link
-                    rows.push(`${csvEscape(comment.nest_level)},${csvEscape(comment.id)},${csvEscape(comment.parent)},${timestampToString(comment.created_utc * 1000, null).slice(0, -4)},${csvEscape(comment.author)},,${csvEscape(comment.body)},,${csvEscape(comment.full_permalink, false)}\n`);
+                    rows.push(`${comment.depth},${csvEscape(comment.id)},${csvEscape(comment.parent)},${timestampToString(comment.created_utc * 1000, null).slice(0, -4)},${csvEscape(comment.author)},,${csvEscape(comment.body)},,${csvEscape(comment.full_permalink, false)}\n`);
                 }
     
                 // Write rows to file
@@ -177,6 +197,7 @@ availableComments.forEach((comment) => {
 
             } else {
                 console.log(`ERROR: Unknown output type: ${options.output}`);
+                return;
             }
 
             fileCount++;
