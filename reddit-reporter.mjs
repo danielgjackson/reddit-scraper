@@ -15,7 +15,7 @@ function generateReport(subreddit, options) {
     const collatedDataDir = path.join(options.data, `${subreddit}${options.collatedDirectoryExtension}`);
     const reportDataDir = path.join(options.data, `${subreddit}${options.reportDirectoryExtension}-${options.output}`);
     
-    console.log(`--- REPORT: ${subreddit}/ -- ${collatedDataDir} --> ${reportDataDir}`);
+    console.log(`--- REPORT: ${subreddit} -- ${collatedDataDir} --> ${reportDataDir}`);
 
     // Source collated data directory must exist
     if (!fs.existsSync(collatedDataDir) || !fs.lstatSync(collatedDataDir).isDirectory()) {
@@ -199,7 +199,7 @@ function report(subreddit, options) {
         }
 
         // Find existing report files
-        const existingReportFiles = glob.sync(path.join(reportDataDir, `**/submission-*.${options.output}`), { nodir: true });
+        const existingReportFiles = glob.sync(path.join(reportDataDir, `**/submission-*.${options.output}`).replaceAll(path.sep, '/'), { nodir: true });
         const reportIndex = path.join(reportDataDir, `${options.reportIndexFilename}.${options.output}`)
         if (fs.existsSync(reportIndex)) { existingReportFiles.push(reportIndex); }
         if (existingReportFiles.length <= 0) {
@@ -234,13 +234,13 @@ function run(options) {
 
     // If no subreddits specified, find any existing collations in the data directory
     if (options.subreddit.length == 0) {
-        const globSpecReport = `${options.data}/*${options.reportDirectoryExtension}-${options.output}/`;
-        const existingDirectories = glob.sync(globSpecReport);
+        const globSpecReport = `${options.data}${path.sep}*${options.reportDirectoryExtension}-${options.output}${path.sep}`;
+        const existingDirectories = glob.sync(globSpecReport.replaceAll(path.sep, '/'));
         options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.reportDirectoryExtension.length + 1 + options.output.length)));
         if (options.subreddit.length == 0) {
             // If no subreddits specified and no existing reports, find any existing collations
-            const globSpecCollated = `${options.data}/*${options.collatedDirectoryExtension}/`;
-            const existingDirectories = glob.sync(globSpecCollated);
+            const globSpecCollated = `${options.data}${path.sep}*${options.collatedDirectoryExtension}${path.sep}`;
+            const existingDirectories = glob.sync(globSpecCollated.replaceAll(path.sep, '/'));
             options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.collatedDirectoryExtension.length)));
             if (options.subreddit.length == 0) {
                 console.log(`WARNING: Nothing to do -- no subreddits specified, and no existing reports were found at ${globSpecReport} -- and no existing collations were found at ${globSpecCollated}`);

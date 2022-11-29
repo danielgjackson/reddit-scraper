@@ -17,7 +17,7 @@ async function scrape(subreddit, type, options) {
     console.log(`--- SCRAPE: ${subreddit}/${type} --> ${dataDir}`);
 
     // Check for existing data to resume from
-    const existingFiles = glob.sync(path.join(dataDir, `${type}${options.filenameSeparator}*${options.filenameExtension}`), { nodir: true });
+    const existingFiles = glob.sync(path.join(dataDir, `${type}${options.filenameSeparator}*${options.filenameExtension}`).replaceAll(path.sep, '/'), { nodir: true });
     let mostRecentTimestamp = null;
     for (const filename of existingFiles) {
         // Extract timestamp from filename
@@ -120,8 +120,8 @@ async function run(options) {
 
     // If no subreddits specified, find any in the data directory
     if (options.subreddit.length == 0) {
-        const globSpec = `${options.data}/*${options.scrapeDirectoryExtension}/`;
-        const existingDirectories = glob.sync(globSpec);
+        const globSpec = `${options.data}${path.sep}*${options.scrapeDirectoryExtension}${path.sep}`;
+        const existingDirectories = glob.sync(globSpec.replaceAll(path.sep, '/'));
         options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.scrapeDirectoryExtension.length)));
 
         if (options.subreddit.length == 0) {

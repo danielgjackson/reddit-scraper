@@ -24,7 +24,7 @@ function collateType(subreddit, type, options) {
     }
 
     // Find existing collated files
-    const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*${options.collatedExtension}`), { nodir: true });
+    const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*${options.collatedExtension}`).replaceAll(path.sep, '/'), { nodir: true });
 
     // Check existing collated file timestamps
     let lastModified = null;
@@ -35,7 +35,7 @@ function collateType(subreddit, type, options) {
 
     // Find newer data files
     const globDataFiles = path.join(scrapeDataDir, `${type}${options.filenameSeparator}*${options.filenameExtension}`);
-    const allDataFiles = glob.sync(globDataFiles, { nodir: true }).sort();
+    const allDataFiles = glob.sync(globDataFiles.replaceAll(path.sep, '/'), { nodir: true }).sort();
     let dataFiles = allDataFiles;
     if (lastModified) {
         dataFiles = dataFiles.filter(filename => {
@@ -169,7 +169,7 @@ function collate(subreddit, options) {
         // Purge each type of file
         for (const type of ['submissions', 'comments']) {
             // Find existing collated files
-            const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*${options.collatedExtension}`), { nodir: true });
+            const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*${options.collatedExtension}`).replaceAll(path.sep, '/'), { nodir: true });
 
             if (existingCollatedFiles.length <= 0) {
                 console.log(`PURGE: No existing ${type} files to delete.`);
@@ -204,13 +204,13 @@ function collate(subreddit, options) {
 function run(options) {
     // If no subreddits specified, find any existing collations in the data directory
     if (options.subreddit.length == 0) {
-        const globSpecCollated = `${options.data}/*${options.collatedDirectoryExtension}/`;
-        const existingDirectories = glob.sync(globSpecCollated);
+        const globSpecCollated = `${options.data}${path.sep}*${options.collatedDirectoryExtension}${path.sep}`;
+        const existingDirectories = glob.sync(globSpecCollated.replaceAll(path.sep, '/'));
         options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.collatedDirectoryExtension.length + 1)));
         if (options.subreddit.length == 0) {
             // If no subreddits specified and no existing collations, find any existing scraped subreddits
-            const globSpecData = `${options.data}/*${options.scrapeDirectoryExtension}/`;
-            const existingDirectories = glob.sync(globSpecData);
+            const globSpecData = `${options.data}${path.sep}*${options.scrapeDirectoryExtension}${path.sep}`;
+            const existingDirectories = glob.sync(globSpecData.replaceAll(path.sep, '/'));
             options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.scrapeDirectoryExtension.length)));
             if (options.subreddit.length == 0) {
                 console.log(`WARNING: Nothing to do -- no subreddits specified, and no existing collations were found at ${globSpecCollated} -- and no existing scraped data was found at ${globSpecData}`);

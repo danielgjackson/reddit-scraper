@@ -99,18 +99,12 @@ This process takes the scraped raw submissions and comments and, by default, col
 node reddit-collator.mjs --subreddit reddit
 ```
 
-You can change the output to `.csv` format with the `--output csv` option (not used by the *reporter*), which will collate them to a `data/$SUBREDDIT.collated-csv` directory as:
-
-  * a single `submissions-index.csv` file, one row for each submission.
-  
-  * a file `comments-$SUBMISSIONID.csv` file, where `$SUBMISSIONID` is the ID of the submission, with one row for each comment. 
-
 As there can be many comment files, these are stored in subdirectories of the first couple of characters of the submission ID.
 
 This process must be allowed to run to completion, but may then be re-run if you have newly-scraped data, and it will efficiently add it to the collations.  If it does not run to completion, re-runs may be incomplete, and you should use the `--purge` flag to remove the existing partial collations.
 
 
-## Reporter (TBC)
+## Reporter
 
 This process takes the collated submissions and comments (`.ndjson` files) and produces a `.csv` report for each submission, with the submission content, and all comments (correctly nested) below.
 
@@ -121,6 +115,8 @@ The reports are written to a `data/$SUBREDDIT.report` directory as:
   * a single `submissions.csv` file, one row for each submission.
   
   * a file `submission-$DATE-$SUBMISSIONID.csv` file, where `$DATE` is the created date of the submission, and `$SUBMISSIONID` is the ID of the submission, and containing one row for each comment.  Nesting is identified by the number of asterisks in the initial column.  These files are placed in subdirectories -- one for each year and month (`YYYY-MM` format).
+
+If preferred, you can change the output to `.json` with `--output json`.
 
 
 <!--
