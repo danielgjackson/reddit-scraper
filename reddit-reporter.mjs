@@ -93,7 +93,7 @@ function generateReport(subreddit, options) {
     for (const submission of collatedIndexData) {
         submissionCount++;
         if (lastUpdate == null || Date.now() - lastUpdate > 1000 || submission === collatedIndexData[collatedIndexData.length - 1]) {
-            console.log(`...reporting file ${submissionCount}/${collatedIndexData.length} (${(100 * submissionCount / (collatedIndexData.length - 1)).toFixed(0)}%)`);
+            console.log(`...reporting file ${submissionCount}/${collatedIndexData.length} (${(100 * submissionCount / collatedIndexData.length).toFixed(0)}%)`);
             lastUpdate = Date.now();
         }
 
@@ -130,10 +130,12 @@ function generateReport(subreddit, options) {
 
             // Visit comment hierarchy
             const comments = [];
-            function visitComments(id, depth = 0) {
+            const usedComments = {};
+            function visitComments(id, depth) {
                 const children = childCommentsForId[id];
                 if (children) {
                     for (const child of children) {
+                        usedComments[child.id] = true;
                         child.depth = depth;
                         comments.push(child);
                         visitComments(child.id, depth + 1);
@@ -141,13 +143,24 @@ function generateReport(subreddit, options) {
                 }
             }
             // Add comments under the parent submission (and their children, in turn)
-            //visitComments(submission.id);
-            // Add unassigned comments (possibly from deleted parents?)            
-            visitComments(null);
+            visitComments(null, 1);
+
+            // Orphaned comments (possibly deleted parent comments?)
+            const orphanedComments = [];
+            for (const comment of sourceComments) {
+                if (!usedComments[comment.id]) {
+                    comment.depth = null;
+                    orphanedComments.push(comment);
+                }
+            }
+            if (orphanedComments.length > 0) {
+                //console.log(`WARNING: There were ${orphanedComments.length} orphaned comments, adding...`);
+                comments.push(...orphanedComments);
+            }
 
             // Verify no comments are missing
             if (comments.length != sourceComments.length) {
-                console.log(`ERROR: No all comments were sorted correctly, only ${comments.length} != ${sourceComments.length}`);
+                console.log(`WARNING: No all comments were sorted correctly, only ${comments.length} != ${sourceComments.length}`);
                 return;
             }
 
@@ -157,32 +170,31 @@ function generateReport(subreddit, options) {
                 const rows = [];
 
                 // UTF-8 BOM, so Excel opens as code page 65001 (UTF-8)
-                rows.push('\ufeff' + 'Depth,CommentId,ParentId,Created,Author,Title,Body,Url,Link\n');
+                rows.push('\ufeff' + 'Depth,CommentId,Created,Author,Title,Body,Url,Link\n');
     
                 //  Add submission as a first row (appear as a comment with no parent, with title and possible URL)
                 // (depth -- empty for submission)
                 // .id -- submission id
-                // (parent_id not set for submission)
                 // .created_utc -- created time seconds since epoch
                 // .author -- author username
                 // .title -- submission title
                 // .selftext -- submission text
                 // .url -- posted URL (if set)
                 // .full_link -- link to Reddit submission                
-                rows.push(`,${csvEscape(submission.id)},,${timestampToString(submission.created_utc * 1000, null).slice(0, -4)},${csvEscape(submission.author)},${csvEscape(submission.title)},${csvEscape(submission.selftext)},${csvEscape(submission.url, false)},${csvEscape(submission.full_permalink, false)}\n`);
+                rows.push(`!,${csvEscape(submission.id)},${timestampToString(submission.created_utc * 1000, null).slice(0, -4)},${csvEscape(submission.author)},${csvEscape(submission.title)},${csvEscape(submission.selftext)},${csvEscape(submission.url, false)},${csvEscape(submission.full_permalink, false)}\n`);
 
                 // Data rows
                 for (const comment of comments) {
                     // .depth (calculated); .nest_level (original)
                     // .id -- comment id
-                    // .parent_id ('t1_...') -- parent comment id
+                    // REMOVED: .parent_id ('t1_...') -- parent comment id
                     // .created_utc -- created time seconds since epoch
                     // .author -- author username
                     // (title -- empty for comments, only set for submission)
                     // .body -- comment text
                     // (url -- empty for comments, only set for submission)
                     // link
-                    rows.push(`${comment.depth},${csvEscape(comment.id)},${csvEscape(comment.parent)},${timestampToString(comment.created_utc * 1000, null).slice(0, -4)},${csvEscape(comment.author)},,${csvEscape(comment.body)},,${csvEscape(comment.full_permalink, false)}\n`);
+                    rows.push(`${comment.depth == null ? '?' : (comment.depth <= 1 ? '*' : '* ' + '> '.repeat(comment.depth - 1))},${csvEscape(comment.id)},${timestampToString(comment.created_utc * 1000, null).slice(0, -4)},${csvEscape(comment.author)},,${csvEscape(comment.body)},,${csvEscape(comment.full_permalink, false)}\n`);
                 }
     
                 // Write rows to file

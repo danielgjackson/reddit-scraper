@@ -67,8 +67,9 @@ function collateType(subreddit, type, options) {
         // For each new data file, open to determine records, collate into relevant output files.
         let lastUpdate = null;
         for (const dataFile of dataFiles) {
+            fileCount++;
             if (lastUpdate == null || Date.now() - lastUpdate > 1000 || dataFile === dataFiles[dataFiles.length - 1]) {
-                console.log(`...collating file ${fileCount}/${dataFiles.length} (${(100 * fileCount / (dataFiles.length - 1)).toFixed(0)}%) - ${recordCount} ${type}`);
+                console.log(`...collating file ${fileCount}/${dataFiles.length} (${(100 * fileCount / dataFiles.length).toFixed(0)}%) - ${recordCount} ${type}`);
                 lastUpdate = Date.now();
             }
             const contents = fs.readFileSync(dataFile, 'utf8');
@@ -139,7 +140,6 @@ function collateType(subreddit, type, options) {
 
                 recordCount++;
             }
-            fileCount++;
         }
 
     } finally {
