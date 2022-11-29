@@ -14,7 +14,7 @@ function collateType(subreddit, type, options) {
 
     // Input and output directories
     const scrapeDataDir = path.join(options.data, `${subreddit}${options.scrapeDirectoryExtension}`);
-    const collatedDataDir = path.join(options.data, `${subreddit}${options.collatedDirectoryExtension}-${options.output}`);
+    const collatedDataDir = path.join(options.data, `${subreddit}${options.collatedDirectoryExtension}`);
     console.log(`--- COLLATE: ${subreddit}/${type} -- ${scrapeDataDir} --> ${collatedDataDir}`);
 
     // Source data directory must exist
@@ -24,7 +24,7 @@ function collateType(subreddit, type, options) {
     }
 
     // Find existing collated files
-    const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*.${options.output}`), { nodir: true });
+    const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*${options.collatedExtension}`), { nodir: true });
 
     // Check existing collated file timestamps
     let lastModified = null;
@@ -65,11 +65,11 @@ function collateType(subreddit, type, options) {
     let recordCount = 0;
     try {
         // For each new data file, open to determine records, collate into relevant output files.
-        let lastReport = null;
+        let lastUpdate = null;
         for (const dataFile of dataFiles) {
-            if (lastReport == null || Date.now() - lastReport > 1000 || dataFile === dataFiles[dataFiles.length - 1]) {
+            if (lastUpdate == null || Date.now() - lastUpdate > 1000 || dataFile === dataFiles[dataFiles.length - 1]) {
                 console.log(`...collating file ${fileCount}/${dataFiles.length} (${(100 * fileCount / (dataFiles.length - 1)).toFixed(0)}%) - ${recordCount} ${type}`);
-                lastReport = Date.now();
+                lastUpdate = Date.now();
             }
             const contents = fs.readFileSync(dataFile, 'utf8');
             const records = JSON.parse(contents);
@@ -78,11 +78,11 @@ function collateType(subreddit, type, options) {
                 let filename;
                 if (type == 'submissions') {
                     subdirectory = collatedDataDir;
-                    filename = `${type}${options.filenameSeparator}${options.indexFilename}.${options.output}`;
+                    filename = `${type}${options.filenameSeparator}${options.indexFilename}${options.collatedExtension}`;
                 } else if (type == 'comments') {
                     const submission = record.link_id.replace(/^t3_/, '');
                     subdirectory = path.join(collatedDataDir, idToSubdirectory(submission));
-                    filename = `${type}${options.filenameSeparator}${submission}.${options.output}`;
+                    filename = `${type}${options.filenameSeparator}${submission}${options.collatedExtension}`;
                 } else {
                     throw new Error(`Invalid type: ${type}`);
                 }
@@ -116,17 +116,8 @@ function collateType(subreddit, type, options) {
                         stream = fs.createWriteStream(collatedFilename, { flags: 'a' });
                     } else {
                         stream = fs.createWriteStream(collatedFilename);
-                        // A new CSV file requires a header
-                        if (options.output == 'csv') {
-                            // UTF-8 BOM, so Excel opens as code page 65001 (UTF-8)
-                            stream.write('\ufeff');
-                            // Header row
-                            if (type == 'submissions') {
-                                stream.write('SubmissionId,Created,Author,Title,Text,URL,Link\n');
-                            } else if (type == 'comments') {
-                                stream.write('CommentId,ParentId,Created,Author,Body,Link\n');
-                            }
-                        }
+                        // Write header if the file format requires
+                        ;
                     }
                     
                     // Track open streams
@@ -143,38 +134,7 @@ function collateType(subreddit, type, options) {
 
                 // Write record to stream
                 let outputString = null;
-                if (options.output == 'ndjson') {
-                    outputString = `${JSON.stringify(record)}\n`
-                } else if (options.output == 'csv') {
-                    // Output formatted as CSV
-                    if (type == 'submissions') {
-                        // .id -- submission id
-                        // .created_utc -- created time seconds since epoch
-                        // .author -- author username
-                        // .title -- submission title
-                        // .selftext -- submission text
-                        // .url -- posted URL
-                        // .full_link -- link to Reddit submission
-                        const url = (record.url != record.full_link) ? record.url : '';     // Only use posted url if it's different from full_link
-                        //const permalink = options.permalinkPrefix + record.permalink;
-                        outputString = `${csvEscape(record.id)},${timestampToString(record.created_utc * 1000, null).slice(0, -4)},${csvEscape(record.author)},${csvEscape(record.title)},${csvEscape(record.selftext)},${csvEscape(url, false)},${csvEscape(record.full_link, false)}\n`;
-                    } else if (type == 'comments') {
-                        // UNUSED: .link_id ('t3_...') -- submission id
-                        // .id -- comment id
-                        // .parent_id ('t1_...') -- parent comment id
-                        // .created_utc -- created time seconds since epoch
-                        // .author -- author username
-                        // .body -- comment text
-                        const permalink = options.permalinkPrefix + record.permalink;
-                        // If parent id is this submission, do not show parent; all IDs have the prefix removed.
-                        const parent_id = (record.parent_id == record.link_id) ? null : record.parent_id.replace(/^t[13]_/, '');
-                        outputString = `${csvEscape(record.id)},${csvEscape(parent_id)},${timestampToString(record.created_utc * 1000, null).slice(0, -4)},${csvEscape(record.author)},${csvEscape(record.body)},${csvEscape(permalink, false)}\n`;
-                    } else {
-                       throw new Error(`Invalid type: ${type}`); 
-                    }
-                } else {
-                    throw new Error(`Invalid output format: ${options.output}`);
-                }
+                outputString = `${JSON.stringify(record)}\n`
                 streams[filename].write(outputString);
 
                 recordCount++;
@@ -198,7 +158,7 @@ function collateType(subreddit, type, options) {
 function collate(subreddit, options) {
     // Purge
     if (options.purge) {
-        const collatedDataDir = path.join(options.data, `${subreddit}${options.collatedDirectoryExtension}-${options.output}`);
+        const collatedDataDir = path.join(options.data, `${subreddit}${options.collatedDirectoryExtension}`);
         console.log(`PURGE: Begin: ${collatedDataDir}`);
 
         if (options.source != 'specified') {
@@ -209,7 +169,7 @@ function collate(subreddit, options) {
         // Purge each type of file
         for (const type of ['submissions', 'comments']) {
             // Find existing collated files
-            const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*.${options.output}`), { nodir: true });
+            const existingCollatedFiles = glob.sync(path.join(collatedDataDir, `**/${type}${options.filenameSeparator}*${options.collatedExtension}`), { nodir: true });
 
             if (existingCollatedFiles.length <= 0) {
                 console.log(`PURGE: No existing ${type} files to delete.`);
@@ -242,17 +202,11 @@ function collate(subreddit, options) {
 
 // Run the collator
 function run(options) {
-
-    if (!['ndjson', 'csv'].includes(options.output)) {
-        console.log(`ERROR: Unknown output type (expected 'ndjson' or 'csv'): ${options.output}`);
-        return;
-    }
-
     // If no subreddits specified, find any existing collations in the data directory
     if (options.subreddit.length == 0) {
-        const globSpecCollated = `${options.data}/*${options.collatedDirectoryExtension}-${options.output}/`;
+        const globSpecCollated = `${options.data}/*${options.collatedDirectoryExtension}/`;
         const existingDirectories = glob.sync(globSpecCollated);
-        options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.collatedDirectoryExtension.length + 1 + options.output.length)));
+        options.subreddit = existingDirectories.map(dir => path.basename(dir).slice(0, -(options.collatedDirectoryExtension.length + 1)));
         if (options.subreddit.length == 0) {
             // If no subreddits specified and no existing collations, find any existing scraped subreddits
             const globSpecData = `${options.data}/*${options.scrapeDirectoryExtension}/`;
@@ -307,11 +261,6 @@ function main(argv, defaultOptions) {
             describe: 'Collate comments (default, use --no-comments to disable)',
             type: 'boolean'
         })
-        .option('output', {
-            default: defaultOptions.output,
-            describe: `Output type ('ndjson' or 'csv').`,
-            type: 'string'
-        })
         .option('purge', {
             default: defaultOptions.purge,
             describe: 'Remove existing collated data (subreddits must be explicitly specified)',
@@ -333,14 +282,13 @@ const defaultOptions = {
     data: path.join(dirname, 'data'),
     filenameSeparator: '-',
     filenameExtension: '.json',
+    collatedExtension: '.ndjson',
     scrapeDirectoryExtension: '.reddit',
     collatedDirectoryExtension: '.collated',
-    maxOpenFiles: 400,
     permalinkPrefix: 'https://www.reddit.com',
     purge: false,
     source: null, // none/data/collations/specified
-    indexFilename: 'index',
-    output: 'ndjson', // ndjson/csv
+    indexFilename: 'index'
 };
 
 

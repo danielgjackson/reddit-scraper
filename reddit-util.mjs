@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 
 // Asynchronously wait for a specified time
 export async function sleep(ms) {
@@ -21,6 +23,11 @@ export function timestampToString(timestamp, separator) {
 // Converts a millisecond timestamp into a filename-compatible date/time string
 export function timestampToFilename(timestamp) {
     return timestampToString(timestamp, '-').slice(0, -4);  // Remove milliseconds
+}
+
+// Converts a millisecond timestamp into a subdirectory based on the year and month
+export function timestampToYearMonthSubdirectory(timestamp) {
+    return timestampToString(timestamp, '-').slice(0, 7);   // Just keep year and month (YYYY-MM)
 }
 
 // Parses a string date/time to a millisecond timestamp
