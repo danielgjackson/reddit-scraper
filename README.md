@@ -10,7 +10,11 @@ There are three steps:
 
 3. **Reporter:** Takes the raw, per-submission data, adds some additional context (such as comment order, nested comment depth, etc), and generates "report" files.  This process can be 
 
-These processes are designed so that they be run (in order) periodically to efficiently "top up" a local archive with the latest data, efficently collate new submission comments, and efficiently regenerate reports for submissions with new comments.
+These processes are designed so that they be run (in order) periodically to efficiently "top up" a local archive with the latest data, efficently collate new submission comments, and efficiently regenerate reports for submissions with new comments.  For example, you could run all of the steps sequentially with:
+
+```bash
+node reddit-scraper && node reddit-collator && node reddit-reporter
+```
 
 
 ## Installing and running this software
