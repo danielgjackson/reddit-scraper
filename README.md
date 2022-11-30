@@ -2,6 +2,16 @@
 
 Produces an offline archive of submissions and comments for a subreddit.
 
+There are three steps:
+
+1. **Scraper:** (Is not actually a web scraper!) Uses the [Pushshift API](https://pushshift.io) to download a subreddit's entire submission and comment archive.  These files are grouped purely by creation date, and not sumbission.
+
+2. **Collator:** Rearranges the downloaded data to be per-submission.  This process can be run after a new scrape to add the latest data (assuming it is always run to completion).
+
+3. **Reporter:** Takes the raw, per-submission data, adds some additional context (such as comment order, nested comment depth, etc), and generates "report" files.  This process can be 
+
+These processes are designed so that they be run (in order) periodically to efficiently "top up" a local archive with the latest data, efficently collate new submission comments, and efficiently regenerate reports for submissions with new comments.
+
 
 ## Installing and running this software
 
@@ -89,7 +99,7 @@ This process can be interrupted, run again to resume, and repeated to fetch the 
 
 ## Collator
 
-This process takes the scraped raw submissions and comments and, by default, collates them to a `data/$SUBREDDIT.collated-ndjson` directory as:
+This process takes the scraped raw submissions and comments and, collates them to a `data/$SUBREDDIT.collated-ndjson` directory as:
 
   * a single `submissions-index.ndjson` file, one line for each submission.
   
@@ -101,12 +111,12 @@ node reddit-collator.mjs --subreddit reddit
 
 As there can be many comment files, these are stored in subdirectories of the first couple of characters of the submission ID.
 
-This process must be allowed to run to completion, but may then be re-run if you have newly-scraped data, and it will efficiently add it to the collations.  If it does not run to completion, re-runs may be incomplete, and you should use the `--purge` flag to remove the existing partial collations.
+This process must be allowed to run to completion, but may then be re-run if you have newly-scraped data, and it will efficiently add it to the collations.  If it does not run to completion, re-runs may be incomplete, and you must use the `--purge` flag to remove the existing partial collations and regenerate the entire collation.
 
 
 ## Reporter
 
-This process takes the collated submissions and comments (`.ndjson` files) and produces a `.csv` report for each submission, with the submission content, and all comments (correctly nested) below.
+This process takes the collated submissions and comments and produces a *report* file for each submission, with the submission content, and all comments (correctly nested) below.
 
 This process can be repeated after a collation and will add any missing reports (e.g. new submissions) and recreate any reports where the collation has been modified (e.g. with newly-scraped comments).
 
@@ -116,7 +126,7 @@ The reports are written to a `data/$SUBREDDIT.report` directory as:
   
   * a file `submission-$DATE-$SUBMISSIONID.csv` file, where `$DATE` is the created date of the submission, and `$SUBMISSIONID` is the ID of the submission, and containing one row for each comment.  Nesting is identified by the number of asterisks in the initial column.  These files are placed in subdirectories -- one for each year and month (`YYYY-MM` format).
 
-If preferred, you can change the output to `.json` with `--output json`.
+If preferred, you can change the output to machine-readable `.json` with `--output json`.
 
 
 <!--
